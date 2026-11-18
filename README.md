@@ -51,5 +51,6 @@ Not affiliated with or endorsed by Discord. Showing a game you aren't playing is
 
 ## License
 
-GPL-3.0-or-later. This project's feature set is derived from the GameTimeSpoof Equicord plugin (GPL-3.0-or-later), with the analytics/badge code removed. Keep that credit and license when you publish.
-Based on the "gameTimeSpoof" plugin from LostMorality/cordmuffin.
+- GPL-3.0-or-later. This project's feature set is derived from the GameTimeSpoof Equicord plugin (GPL-3.0-or-later), with the analytics/badge code removed. Keep that credit and license when you publish.
+
+- Based on the "gameTimeSpoof" plugin from LostMorality/cordmuffin.
