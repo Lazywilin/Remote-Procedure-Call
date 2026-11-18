@@ -47,7 +47,7 @@ cargo run --release
 
 ## Disclaimer
 
-Not affiliated with or endorsed by Discord. Showing a game you aren't playing is a cosmetic status only. Use it responsibly and in line with Discord's Terms of Service.
+Not affiliated with or endorsed by Discord. Showing a game you aren't playing is a cosmetic status only. Use it responsibly and in line with Discord's Terms of Service. (https://discord.com/safety/platform-manipulation-policy-explainer)
 
 ## License
 
