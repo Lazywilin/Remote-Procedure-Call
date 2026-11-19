@@ -1,18 +1,34 @@
 # gts-rpc-gui
 
-A small desktop app (Rust + egui) that lets you browse Discord's list of detectable games and show one as your Discord status ("Playing …"), with a custom elapsed-time timer.
+A small desktop app (Rust + egui) to browse Discord's list of detectable games and show one as your custom Discord Rich Presence status, with a full status editor.
 
 **Display only.** It uses Discord's local Rich Presence IPC, the same mechanism as any custom RPC tool. It does **not** send play-time or analytics data to Discord, and it does not change your badges or real play time.
 
 ## Features
 
+**Game browser**
 - Full detectable-games list from Discord, with cover art
 - Search by name or alias, and a genre filter
 - Tabs: All Games, Favorites, Detected (games currently running on your PC)
 - Favorites saved between runs
-- One-click Spoof / Stop, with the active game pinned to the top
-- Set how long you appear to have been playing (hours) and an optional details line
 - Click a cover to open the game's page in Discord's app directory
+
+**Status editor**
+- Activity type: Playing, Listening to, Watching, Competing in
+- Two custom text lines, with a live preview and an Update status button
+- Timer modes: Elapsed ("started X hours ago"), Countdown ("ends in X hours") or Hidden
+- Party size (for example 2 of 5)
+- Use the game's icon as the large image, with hover text
+- Optional small badge image (a direct https link to a PNG you host), with hover text
+- Platform tag: adds text like `on PlayStation 5 △ ○ ✕ □` to line 2 (PlayStation 5/4, Xbox, PC)
+- **PlayStation look** button: PS5 tag, game icon, a white PlayStation logo badge (`assets/playstation-logo.png`) and an elapsed timer in one click
+- Up to two custom buttons (https links)
+- Auto store buttons: Steam, PlayStation Store and Xbox Store links built for the game you pick
+
+**Presets and look**
+- Save a game plus its style as a preset, apply it in one click, or mark one with ⚡ to apply on launch
+- Light or dark theme and a custom accent color
+- `--minimized` launch flag, handy together with a ⚡ preset
 
 ## Requirements
 
@@ -29,21 +45,33 @@ cd "Discord RPC Rust"
 cargo run --release
 ```
 
+Start minimized: `cargo run --release -- --minimized`
+
+Run the tests: `cargo test`
+
 ## Usage
 
 1. Start Discord, then start the app.
 2. Browse or search for a game. Use the tabs and genre dropdown to narrow it down.
-3. Optionally set **Playing for (hours)** and a **Details** line.
-4. Click **Spoof** on a game. Your status updates within a few seconds.
+3. Click **Spoof** on a game. Your status appears within a few seconds.
+4. Style it in the **Status style** panel on the right, then click **Update status** to apply changes without reconnecting.
 5. Click **Stop** (or close the app) to clear it.
-6. Click the star to favorite a game. Favorites are stored in `gts-rpc/favorites.txt` inside your config folder.
+6. To reuse a setup, name it and click **Save** under Presets. Click **Apply** later, or ⚡ to apply it on launch.
+
+Settings are stored in a `gts-rpc` folder inside your config directory (`config.json` for presets and theme, `favorites.txt` for favorites).
 
 ## Limitations
 
 - Discord shows one status per connection, so spoofing a new game replaces the current one.
 - Works with the desktop client only. Web Discord has no local IPC socket.
 - Linux Flatpak/Snap Discord may block the IPC socket until you expose it to the sandbox.
-- Detected tab matches running process names against Discord's executable list, so it may miss some games.
+- **The "Playing on PlayStation" header can't be set.** Discord adds that header and logo itself for linked console accounts. This app can only add plain text (the PlayStation button symbols △ ○ ✕ □ are real Unicode characters, but there is no PlayStation logo character). The bundled white PlayStation logo is shown as a small badge image instead, and you can point the small badge field at your own PNG for a different logo. The badge loads from this repo's raw GitHub link (`PS_BADGE_URL` in `main.rs`), so it appears only after the repo is public and the path matches.
+- **Buttons are text only.** Discord does not allow logos or icons on Rich Presence buttons.
+- **Store buttons are mostly search links.** Discord's game list has no PlayStation or Xbox product IDs, so those buttons open a store search for the game's name. Steam links straight to the store page only when Discord's data includes a Steam ID for the game. Otherwise it is a search link too. Games that are not released yet may have no store page at all.
+- Other people can see your buttons, but you can't see them on your own profile.
+- Some Discord versions ignore the activity type and show "Playing".
+- The large-image icon is passed to Discord as a URL and may not render on every client. If it doesn't show, turn the option off.
+- The Detected tab matches running process names against Discord's executable list, so it may miss some games.
 - There is no "only games I haven't played" filter, since that needs your account session.
 
 ## Disclaimer
@@ -52,7 +80,7 @@ Not affiliated with or endorsed by Discord. Showing a game you aren't playing is
 
 ## License
 
-GPL-3.0-or-later.
+GPL-3.0-or-later. See [LICENSE](LICENSE).
 
 ## Credits
 

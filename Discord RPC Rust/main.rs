@@ -16,6 +16,11 @@ use std::{
 };
 
 const DETECTABLE_URL: &str = "https://discord.com/api/v9/applications/detectable";
+/// Badge used by the "PlayStation look" button: the white PlayStation logo PNG in `assets/`, loaded from
+/// your repo's raw GitHub link, so it only shows once that file is pushed to a public repo.
+/// If you move the project folder, change this link to match.
+const PS_BADGE_URL: &str =
+    "https://raw.githubusercontent.com/Lazywilin/Remote-Procedure-Call/main/Discord%20RPC%20Rust/assets/playstation-logo.png";
 const CARD_W: f32 = 170.0;
 const ROW_H: f32 = 330.0;
 
@@ -55,17 +60,21 @@ fn url_encode(s: &str) -> String {
 impl App {
     /// Steam app id from Discord's data, if the game lists one.
     fn steam_id(&self) -> Option<String> {
-        self.third_party_skus.as_ref()?.as_array()?.iter().find_map(|sku| {
-            let dist = sku.get("distributor")?.as_str()?;
-            if !dist.eq_ignore_ascii_case("steam") {
-                return None;
-            }
-            match sku.get("id").or_else(|| sku.get("sku"))? {
-                Value::String(s) => Some(s.clone()),
-                Value::Number(n) => Some(n.to_string()),
-                _ => None,
-            }
-        })
+        self.third_party_skus
+            .as_ref()?
+            .as_array()?
+            .iter()
+            .find_map(|sku| {
+                let dist = sku.get("distributor")?.as_str()?;
+                if !dist.eq_ignore_ascii_case("steam") {
+                    return None;
+                }
+                match sku.get("id").or_else(|| sku.get("sku"))? {
+                    Value::String(s) => Some(s.clone()),
+                    Value::Number(n) => Some(n.to_string()),
+                    _ => None,
+                }
+            })
     }
 
     /// Up to two store buttons. Steam links straight to the page when Discord
@@ -81,10 +90,16 @@ impl App {
             v.push(("Get on Steam".to_string(), url));
         }
         if s.store_ps {
-            v.push(("PlayStation Store".to_string(), format!("https://store.playstation.com/search/{q}")));
+            v.push((
+                "PlayStation Store".to_string(),
+                format!("https://store.playstation.com/search/{q}"),
+            ));
         }
         if s.store_xbox {
-            v.push(("Xbox Store".to_string(), format!("https://www.xbox.com/search?q={q}")));
+            v.push((
+                "Xbox Store".to_string(),
+                format!("https://www.xbox.com/search?q={q}"),
+            ));
         }
         v.truncate(2);
         v
@@ -92,25 +107,46 @@ impl App {
 
     fn matches(&self, q: &str) -> bool {
         self.name.to_lowercase().contains(q)
-            || self.aliases.iter().flatten().any(|a| a.to_lowercase().contains(q))
+            || self
+                .aliases
+                .iter()
+                .flatten()
+                .any(|a| a.to_lowercase().contains(q))
     }
     fn genres(&self) -> String {
-        self.themes.iter().flatten().take(2).cloned().collect::<Vec<_>>().join(" · ")
+        self.themes
+            .iter()
+            .flatten()
+            .take(2)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" · ")
     }
     /// Card image in the grid.
     fn image_url(&self) -> Option<String> {
         if let Some(h) = &self.cover_image_hash {
-            return Some(format!("https://cdn.discordapp.com/app-icons/{}/{h}.webp?size=300", self.id));
+            return Some(format!(
+                "https://cdn.discordapp.com/app-icons/{}/{h}.webp?size=300",
+                self.id
+            ));
         }
-        self.icon_hash
-            .as_ref()
-            .map(|h| format!("https://cdn.discordapp.com/app-icons/{}/{h}.webp?size=128", self.id))
+        self.icon_hash.as_ref().map(|h| {
+            format!(
+                "https://cdn.discordapp.com/app-icons/{}/{h}.webp?size=128",
+                self.id
+            )
+        })
     }
     /// Square art used as the status' large image.
     fn art_url(&self) -> Option<String> {
         self.icon_hash
             .as_ref()
-            .map(|h| format!("https://cdn.discordapp.com/app-icons/{}/{h}.png?size=512", self.id))
+            .map(|h| {
+                format!(
+                    "https://cdn.discordapp.com/app-icons/{}/{h}.png?size=512",
+                    self.id
+                )
+            })
             .or_else(|| self.image_url())
     }
 }
@@ -135,7 +171,12 @@ enum Kind {
 }
 
 impl Kind {
-    const ALL: [Kind; 4] = [Kind::Playing, Kind::Listening, Kind::Watching, Kind::Competing];
+    const ALL: [Kind; 4] = [
+        Kind::Playing,
+        Kind::Listening,
+        Kind::Watching,
+        Kind::Competing,
+    ];
     fn code(self) -> u8 {
         match self {
             Kind::Playing => 0,
@@ -162,6 +203,48 @@ enum Timer {
     Hidden,
 }
 
+/// Text-only platform tag added to line 2. Discord's real "Playing on PlayStation"
+/// header comes from linked console accounts and can't be set by an RPC app.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+enum Platform {
+    #[default]
+    None,
+    PlayStation5,
+    PlayStation4,
+    Xbox,
+    Pc,
+}
+
+impl Platform {
+    const ALL: [Platform; 5] = [
+        Platform::None,
+        Platform::PlayStation5,
+        Platform::PlayStation4,
+        Platform::Xbox,
+        Platform::Pc,
+    ];
+    fn label(self) -> &'static str {
+        match self {
+            Platform::None => "None",
+            Platform::PlayStation5 => "PlayStation 5",
+            Platform::PlayStation4 => "PlayStation 4",
+            Platform::Xbox => "Xbox Series X|S",
+            Platform::Pc => "PC",
+        }
+    }
+    /// The PlayStation face-button symbols are real Unicode characters, which is
+    /// the closest thing to a logo that works in plain text.
+    fn tag(self) -> Option<&'static str> {
+        match self {
+            Platform::None => None,
+            Platform::PlayStation5 => Some("on PlayStation 5 \u{25B3} \u{25CB} \u{2715} \u{25A1}"),
+            Platform::PlayStation4 => Some("on PlayStation 4 \u{25B3} \u{25CB} \u{2715} \u{25A1}"),
+            Platform::Xbox => Some("on Xbox Series X|S \u{24CD}"),
+            Platform::Pc => Some("on PC"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 struct Style {
@@ -182,10 +265,13 @@ struct Style {
     store_steam: bool,
     store_ps: bool,
     store_xbox: bool,
+    platform: Platform,
+    small_image_url: String,
+    small_text: String,
 }
 
 /// Maximum hours allowed for a timer.
-/// 
+///
 /// - **Why this limit?** i64 timestamps must stay within safe bounds:
 ///   - Current Unix timestamp: ~1.7 billion seconds (as of 2026)
 ///   - i64 max: ~9.2e18 seconds (~292 billion years from now)
@@ -200,33 +286,36 @@ struct Style {
 const MAX_HOURS: f64 = 9000.0;
 
 fn unix_now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Parses hours from a string, clamping invalid inputs to safe bounds.
-/// 
+///
 /// # Returns
 /// - `Some(hours)` for valid, finite values within reasonable bounds (0 to MAX_HOURS)
 /// - `None` if the input is empty, NaN, or Infinity
 fn parse_hours(s: &str) -> Option<f64> {
     let trimmed = s.trim();
-    
+
     // Reject empty strings immediately
     if trimmed.is_empty() {
         return None;
     }
-    
+
     // Parse into f64
-    let hours = trimmed.parse::<f64>()?;
-    
+    let hours = trimmed.parse::<f64>().ok()?;
+
     // Reject NaN and Infinity before any arithmetic
     if !hours.is_finite() {
         return None;
     }
-    
+
     // Ensure non-negative
     let hours = hours.max(0.0);
-    
+
     // Clamp to maximum to prevent overflow in timestamp calculations
     Some(hours.min(MAX_HOURS))
 }
@@ -237,15 +326,27 @@ fn clean(s: &str) -> Option<String> {
     (t.chars().count() >= 2).then(|| t.chars().take(128).collect())
 }
 
+/// Line 2 = your own text plus the platform tag, if one is chosen.
+fn state_line(s: &Style) -> Option<String> {
+    match (clean(&s.state), s.platform.tag()) {
+        (Some(u), Some(t)) => clean(&format!("{u} \u{b7} {t}")),
+        (Some(u), None) => Some(u),
+        (None, Some(t)) => clean(t),
+        (None, None) => None,
+    }
+}
+
 fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Value {
     let now = unix_now();
-    let secs = parse_hours(&s.hours).map(|h| (h * 3600.0) as i64).unwrap_or(0);
+    let secs = parse_hours(&s.hours)
+        .map(|h| (h * 3600.0) as i64)
+        .unwrap_or(0);
     let mut act = serde_json::Map::new();
     act.insert("type".into(), json!(s.kind.code()));
     if let Some(d) = clean(&s.details) {
         act.insert("details".into(), json!(d));
     }
-    if let Some(d) = clean(&s.state) {
+    if let Some(d) = state_line(s) {
         act.insert("state".into(), json!(d));
     }
     match s.timer {
@@ -257,18 +358,30 @@ fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Val
         }
         Timer::Hidden => {}
     }
+    let mut assets = serde_json::Map::new();
     if let Some(img) = art {
-        let mut assets = serde_json::Map::new();
         assets.insert("large_image".into(), json!(img));
         if let Some(t) = clean(&s.large_text) {
             assets.insert("large_text".into(), json!(t));
         }
+    }
+    let small = s.small_image_url.trim();
+    if small.starts_with("https://") {
+        assets.insert("small_image".into(), json!(small));
+        if let Some(t) = clean(&s.small_text) {
+            assets.insert("small_text".into(), json!(t));
+        }
+    }
+    if !assets.is_empty() {
         act.insert("assets".into(), Value::Object(assets));
     }
     let max: i64 = s.party_max.trim().parse().unwrap_or(0);
     if max > 0 {
         let cur = s.party_cur.trim().parse::<i64>().unwrap_or(1).clamp(1, max);
-        act.insert("party".into(), json!({ "id": "gts-party", "size": [cur, max] }));
+        act.insert(
+            "party".into(),
+            json!({ "id": "gts-party", "size": [cur, max] }),
+        );
     }
     let mut buttons: Vec<Value> = [(&s.btn1_label, &s.btn1_url), (&s.btn2_label, &s.btn2_url)]
         .into_iter()
@@ -287,7 +400,10 @@ fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Val
     if !buttons.is_empty() {
         act.insert("buttons".into(), Value::Array(buttons));
     }
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     json!({
         "cmd": "SET_ACTIVITY",
         "args": { "pid": std::process::id(), "activity": Value::Object(act) },
@@ -300,7 +416,7 @@ fn preview(game: &str, s: &Style) -> String {
     if let Some(d) = clean(&s.details) {
         out += &format!("\n{d}");
     }
-    if let Some(d) = clean(&s.state) {
+    if let Some(d) = state_line(s) {
         out += &format!("\n{d}");
     }
     let max: i64 = s.party_max.trim().parse().unwrap_or(0);
@@ -339,7 +455,12 @@ struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { presets: vec![], light: false, accent: [35, 165, 90], auto_preset: None }
+        Self {
+            presets: vec![],
+            light: false,
+            accent: [35, 165, 90],
+            auto_preset: None,
+        }
     }
 }
 
@@ -369,12 +490,21 @@ fn save_config(cfg: &Config) {
 
 fn load_favs() -> BTreeSet<String> {
     fs::read_to_string(config_dir().join("favorites.txt"))
-        .map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+        .map(|s| {
+            s.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 fn save_favs(favs: &BTreeSet<String>) {
-    let _ = fs::write(config_dir().join("favorites.txt"), favs.iter().cloned().collect::<Vec<_>>().join("\n"));
+    let _ = fs::write(
+        config_dir().join("favorites.txt"),
+        favs.iter().cloned().collect::<Vec<_>>().join("\n"),
+    );
 }
 
 fn accent_color(c: [u8; 3]) -> Color32 {
@@ -382,7 +512,11 @@ fn accent_color(c: [u8; 3]) -> Color32 {
 }
 
 fn apply_theme(ctx: &egui::Context, cfg: &Config) {
-    let mut v = if cfg.light { egui::Visuals::light() } else { egui::Visuals::dark() };
+    let mut v = if cfg.light {
+        egui::Visuals::light()
+    } else {
+        egui::Visuals::dark()
+    };
     v.selection.bg_fill = accent_color(cfg.accent);
     v.hyperlink_color = accent_color(cfg.accent);
     ctx.set_visuals(v);
@@ -393,14 +527,27 @@ fn apply_theme(ctx: &egui::Context, cfg: &Config) {
 fn scan(apps: &[App]) -> HashSet<String> {
     let mut sys = sysinfo::System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let running: HashSet<String> =
-        sys.processes().values().map(|p| p.name().to_string_lossy().to_lowercase()).collect();
+    let running: HashSet<String> = sys
+        .processes()
+        .values()
+        .map(|p| p.name().to_string_lossy().to_lowercase())
+        .collect();
     apps.iter()
         .filter(|a| {
-            a.executables.iter().flatten().filter(|e| !e.is_launcher).any(|e| {
-                let name = e.name.trim_start_matches('>').rsplit('/').next().unwrap_or("").to_lowercase();
-                running.contains(&name)
-            })
+            a.executables
+                .iter()
+                .flatten()
+                .filter(|e| !e.is_launcher)
+                .any(|e| {
+                    let name = e
+                        .name
+                        .trim_start_matches('>')
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    running.contains(&name)
+                })
         })
         .map(|a| a.id.clone())
         .collect()
@@ -558,12 +705,23 @@ impl Gts {
 
     fn push(&self, id: &str) {
         let art = if self.style.use_art {
-            self.apps.iter().find(|a| a.id == id).and_then(|a| a.art_url())
+            self.apps
+                .iter()
+                .find(|a| a.id == id)
+                .and_then(|a| a.art_url())
         } else {
             None
         };
-        let stores = self.apps.iter().find(|a| a.id == id).map(|a| a.store_links(&self.style)).unwrap_or_default();
-        let _ = self.tx.send(Cmd::Set { app_id: id.to_string(), payload: payload(&self.style, art, stores) });
+        let stores = self
+            .apps
+            .iter()
+            .find(|a| a.id == id)
+            .map(|a| a.store_links(&self.style))
+            .unwrap_or_default();
+        let _ = self.tx.send(Cmd::Set {
+            app_id: id.to_string(),
+            payload: payload(&self.style, art, stores),
+        });
     }
 
     fn apply_preset(&mut self, i: usize) {
@@ -595,18 +753,30 @@ impl Gts {
                 }
                 save_favs(&self.favs);
             }
-            Act::Open(id) => self
-                .ctx
-                .open_url(egui::OpenUrl::new_tab(format!("https://discord.com/application-directory/{id}"))),
+            Act::Open(id) => self.ctx.open_url(egui::OpenUrl::new_tab(format!(
+                "https://discord.com/application-directory/{id}"
+            ))),
             Act::ApplyPreset(i) => self.apply_preset(i),
             Act::SavePreset => {
-                let Some(id) = self.playing.clone() else { return };
+                let Some(id) = self.playing.clone() else {
+                    return;
+                };
                 let name = self.preset_name.trim().to_string();
                 if name.is_empty() {
                     return;
                 }
-                let app_name = self.apps.iter().find(|a| a.id == id).map(|a| a.name.clone()).unwrap_or_default();
-                let preset = Preset { name: name.clone(), app_id: id, app_name, style: self.style.clone() };
+                let app_name = self
+                    .apps
+                    .iter()
+                    .find(|a| a.id == id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default();
+                let preset = Preset {
+                    name: name.clone(),
+                    app_id: id,
+                    app_name,
+                    style: self.style.clone(),
+                };
                 match self.config.presets.iter_mut().find(|p| p.name == name) {
                     Some(existing) => *existing = preset,
                     None => self.config.presets.push(preset),
@@ -624,7 +794,11 @@ impl Gts {
             }
             Act::ToggleAuto(name) => {
                 self.config.auto_preset =
-                    if self.config.auto_preset.as_deref() == Some(name.as_str()) { None } else { Some(name) };
+                    if self.config.auto_preset.as_deref() == Some(name.as_str()) {
+                        None
+                    } else {
+                        Some(name)
+                    };
                 save_config(&self.config);
             }
             Act::ThemeChanged => {
@@ -635,43 +809,67 @@ impl Gts {
     }
 }
 
-fn card(ui: &mut egui::Ui, app: &App, fav: bool, active: bool, accent: Color32, acts: &mut Vec<Act>) {
+fn card(
+    ui: &mut egui::Ui,
+    app: &App,
+    fav: bool,
+    active: bool,
+    accent: Color32,
+    acts: &mut Vec<Act>,
+) {
     ui.allocate_ui(Vec2::new(CARD_W, ROW_H - 10.0), |ui| {
-        let stroke = if active { Stroke::new(2.0, accent) } else { ui.visuals().widgets.noninteractive.bg_stroke };
-        egui::Frame::group(ui.style()).stroke(stroke).fill(ui.visuals().faint_bg_color).show(ui, |ui| {
-            ui.set_width(CARD_W - 20.0);
-            ui.set_height(ROW_H - 34.0);
-            match app.image_url() {
-                Some(url) => {
-                    let r = ui
-                        .add(egui::Image::new(url).fit_to_exact_size(Vec2::new(CARD_W - 20.0, 200.0)).sense(egui::Sense::click()))
-                        .on_hover_text("View game page");
-                    if r.clicked() {
-                        acts.push(Act::Open(app.id.clone()));
+        let stroke = if active {
+            Stroke::new(2.0_f32, accent)
+        } else {
+            ui.visuals().widgets.noninteractive.bg_stroke
+        };
+        egui::Frame::group(ui.style())
+            .stroke(stroke)
+            .fill(ui.visuals().faint_bg_color)
+            .show(ui, |ui| {
+                ui.set_width(CARD_W - 20.0);
+                ui.set_height(ROW_H - 34.0);
+                match app.image_url() {
+                    Some(url) => {
+                        let r = ui
+                            .add(
+                                egui::Image::new(url)
+                                    .fit_to_exact_size(Vec2::new(CARD_W - 20.0, 200.0))
+                                    .sense(egui::Sense::click()),
+                            )
+                            .on_hover_text("View game page");
+                        if r.clicked() {
+                            acts.push(Act::Open(app.id.clone()));
+                        }
+                    }
+                    None => {
+                        ui.allocate_ui(Vec2::new(CARD_W - 20.0, 200.0), |ui| {
+                            ui.centered_and_justified(|ui| ui.label("🎮"))
+                        });
                     }
                 }
-                None => {
-                    ui.allocate_ui(Vec2::new(CARD_W - 20.0, 200.0), |ui| ui.centered_and_justified(|ui| ui.label("🎮")));
-                }
-            }
-            if active {
-                ui.label(RichText::new("● Showing").color(accent).strong());
-            }
-            ui.add(egui::Label::new(RichText::new(&app.name).strong()).truncate());
-            ui.add(egui::Label::new(RichText::new(app.genres()).weak().small()).truncate());
-            ui.horizontal(|ui| {
                 if active {
-                    if ui.button("Stop").clicked() {
-                        acts.push(Act::Stop);
+                    ui.label(RichText::new("● Showing").color(accent).strong());
+                }
+                ui.add(egui::Label::new(RichText::new(&app.name).strong()).truncate());
+                ui.add(egui::Label::new(RichText::new(app.genres()).weak().small()).truncate());
+                ui.horizontal(|ui| {
+                    if active {
+                        if ui.button("Stop").clicked() {
+                            acts.push(Act::Stop);
+                        }
+                    } else if ui.button("Spoof").clicked() {
+                        acts.push(Act::Play(app.id.clone()));
                     }
-                } else if ui.button("Spoof").clicked() {
-                    acts.push(Act::Play(app.id.clone()));
-                }
-                if ui.button(if fav { "★" } else { "☆" }).on_hover_text("Favorite").clicked() {
-                    acts.push(Act::Fav(app.id.clone()));
-                }
+                    if ui
+                        .button(if fav { "★" } else { "☆" })
+                        .on_hover_text("Favorite")
+                        .clicked()
+                    {
+                        acts.push(Act::Fav(app.id.clone()));
+                    }
+                });
             });
-        });
     });
 }
 
@@ -686,7 +884,9 @@ impl eframe::App for Gts {
                         if !self.auto_done {
                             self.auto_done = true;
                             if let Some(name) = self.config.auto_preset.clone() {
-                                if let Some(i) = self.config.presets.iter().position(|p| p.name == name) {
+                                if let Some(i) =
+                                    self.config.presets.iter().position(|p| p.name == name)
+                                {
                                     self.apply_preset(i);
                                 }
                             }
@@ -704,7 +904,11 @@ impl eframe::App for Gts {
             }
         }
 
-        let genres: BTreeSet<&String> = self.apps.iter().flat_map(|a| a.themes.iter().flatten()).collect();
+        let genres: BTreeSet<&String> = self
+            .apps
+            .iter()
+            .flat_map(|a| a.themes.iter().flatten())
+            .collect();
         let accent = accent_color(self.config.accent);
         let mut acts: Vec<Act> = vec![];
         let mut retry = false;
@@ -715,17 +919,28 @@ impl eframe::App for Gts {
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::All, "All Games");
-                let fav_label =
-                    if self.favs.is_empty() { "Favorites".to_string() } else { format!("Favorites ({})", self.favs.len()) };
+                let fav_label = if self.favs.is_empty() {
+                    "Favorites".to_string()
+                } else {
+                    format!("Favorites ({})", self.favs.len())
+                };
                 ui.selectable_value(&mut self.tab, Tab::Favorites, fav_label);
                 ui.selectable_value(&mut self.tab, Tab::Detected, "Detected");
                 if self.tab == Tab::Detected && ui.button("Rescan").clicked() {
                     rescan = true;
                 }
                 ui.separator();
-                ui.add(egui::TextEdit::singleline(&mut self.query).hint_text("Search games").desired_width(200.0));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.query)
+                        .hint_text("Search games")
+                        .desired_width(200.0),
+                );
                 egui::ComboBox::from_id_salt("genre")
-                    .selected_text(if self.genre.is_empty() { "All genres" } else { &self.genre })
+                    .selected_text(if self.genre.is_empty() {
+                        "All genres"
+                    } else {
+                        &self.genre
+                    })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.genre, String::new(), "All genres");
                         for g in &genres {
@@ -760,6 +975,23 @@ impl eframe::App for Gts {
                 ui.add(egui::TextEdit::singleline(&mut self.style.details).hint_text("details (2+ characters)").desired_width(f32::INFINITY));
                 ui.label("Line 2");
                 ui.add(egui::TextEdit::singleline(&mut self.style.state).hint_text("state (2+ characters)").desired_width(f32::INFINITY));
+                ui.horizontal(|ui| {
+                    ui.label("Platform tag");
+                    egui::ComboBox::from_id_salt("platform").selected_text(self.style.platform.label()).show_ui(ui, |ui| {
+                        for p in Platform::ALL {
+                            ui.selectable_value(&mut self.style.platform, p, p.label());
+                        }
+                    });
+                });
+                ui.small("Adds text like \"on PlayStation 5 \u{25B3} \u{25CB} \u{2715} \u{25A1}\" to line 2. Discord's own platform header can't be set.");
+                if ui.button("PlayStation look").on_hover_text("PS5 tag, game icon, PlayStation logo badge, elapsed timer").clicked() {
+                    self.style.platform = Platform::PlayStation5;
+                    self.style.use_art = true;
+                    self.style.kind = Kind::Playing;
+                    self.style.timer = Timer::Elapsed;
+                    self.style.small_image_url = PS_BADGE_URL.to_string();
+                    self.style.small_text = "PlayStation".to_string();
+                }
 
                 ui.add_space(6.0);
                 ui.label("Timer");
@@ -787,6 +1019,11 @@ impl eframe::App for Gts {
                 ui.checkbox(&mut self.style.use_art, "Use the game's icon as the large image");
                 if self.style.use_art {
                     ui.add(egui::TextEdit::singleline(&mut self.style.large_text).hint_text("image hover text").desired_width(f32::INFINITY));
+                }
+                ui.label("Small badge image (optional, direct https link to a PNG)");
+                ui.add(egui::TextEdit::singleline(&mut self.style.small_image_url).hint_text("https://\u{2026}/logo.png").desired_width(f32::INFINITY));
+                if !self.style.small_image_url.trim().is_empty() {
+                    ui.add(egui::TextEdit::singleline(&mut self.style.small_text).hint_text("badge hover text").desired_width(f32::INFINITY));
                 }
 
                 ui.add_space(6.0);
@@ -893,7 +1130,8 @@ impl eframe::App for Gts {
                     let a = &self.apps[i];
                     (self.tab != Tab::Favorites || self.favs.contains(&a.id))
                         && (self.tab != Tab::Detected || self.detected.contains(&a.id))
-                        && (self.genre.is_empty() || a.themes.iter().flatten().any(|t| *t == self.genre))
+                        && (self.genre.is_empty()
+                            || a.themes.iter().flatten().any(|t| *t == self.genre))
                         && (q.is_empty() || a.matches(&q))
                 })
                 .collect();
@@ -911,7 +1149,9 @@ impl eframe::App for Gts {
             if shown.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.label(match self.tab {
-                        Tab::Favorites if self.favs.is_empty() => "No favorites yet. Click the star on a game to add it here.",
+                        Tab::Favorites if self.favs.is_empty() => {
+                            "No favorites yet. Click the star on a game to add it here."
+                        }
                         Tab::Detected => "No detected games running. Start one and press Rescan.",
                         _ => "No games match your search.",
                     })
@@ -921,17 +1161,29 @@ impl eframe::App for Gts {
 
             let cols = ((ui.available_width() / (CARD_W + 8.0)).floor() as usize).max(1);
             let rows = shown.len().div_ceil(cols);
-            egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW_H, rows, |ui, range| {
-                for r in range {
-                    ui.horizontal_top(|ui| {
-                        for &i in shown.iter().skip(r * cols).take(cols) {
-                            let app = &self.apps[i];
-                            let active = self.playing.as_deref() == Some(app.id.as_str());
-                            card(ui, app, self.favs.contains(&app.id), active, accent, &mut acts);
-                        }
-                    });
-                }
-            });
+            egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+                ui,
+                ROW_H,
+                rows,
+                |ui, range| {
+                    for r in range {
+                        ui.horizontal_top(|ui| {
+                            for &i in shown.iter().skip(r * cols).take(cols) {
+                                let app = &self.apps[i];
+                                let active = self.playing.as_deref() == Some(app.id.as_str());
+                                card(
+                                    ui,
+                                    app,
+                                    self.favs.contains(&app.id),
+                                    active,
+                                    accent,
+                                    &mut acts,
+                                );
+                            }
+                        });
+                    }
+                },
+            );
         });
 
         if retry {
@@ -954,7 +1206,7 @@ impl eframe::App for Gts {
 fn main() -> eframe::Result {
     let minimized = env::args().any(|a| a == "--minimized");
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]).with_minimized(minimized),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -962,6 +1214,10 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+            if minimized {
+                cc.egui_ctx
+                    .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
             Ok(Box::new(Gts::new(cc.egui_ctx.clone())))
         }),
     )
