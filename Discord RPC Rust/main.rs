@@ -451,6 +451,7 @@ struct Config {
     light: bool,
     accent: [u8; 3],
     auto_preset: Option<String>,
+    live_update: bool,
 }
 
 impl Default for Config {
@@ -460,6 +461,7 @@ impl Default for Config {
             light: false,
             accent: [35, 165, 90],
             auto_preset: None,
+            live_update: true,
         }
     }
 }
@@ -637,6 +639,8 @@ struct Gts {
     config: Config,
     preset_name: String,
     auto_done: bool,
+    last_sent: String,
+    dirty_since: Option<std::time::Instant>,
     playing: Option<String>,
     tx: mpsc::Sender<Cmd>,
     status: Arc<Mutex<String>>,
@@ -673,6 +677,8 @@ impl Gts {
             config,
             preset_name: String::new(),
             auto_done: false,
+            last_sent: String::new(),
+            dirty_since: None,
             playing: None,
             tx,
             status,
@@ -703,7 +709,7 @@ impl Gts {
         self.scan_rx = Some(rx);
     }
 
-    fn push(&self, id: &str) {
+    fn push(&mut self, id: &str) {
         let art = if self.style.use_art {
             self.apps
                 .iter()
@@ -722,6 +728,8 @@ impl Gts {
             app_id: id.to_string(),
             payload: payload(&self.style, art, stores),
         });
+        self.last_sent = serde_json::to_string(&self.style).unwrap_or_default();
+        self.dirty_since = None;
     }
 
     fn apply_preset(&mut self, i: usize) {
@@ -1064,6 +1072,9 @@ impl eframe::App for Gts {
                 if ui.add_enabled(self.playing.is_some(), egui::Button::new("Update status")).clicked() {
                     acts.push(Act::Update);
                 }
+                if ui.checkbox(&mut self.config.live_update, "Update automatically").changed() {
+                    acts.push(Act::ThemeChanged);
+                }
 
                 ui.separator();
                 ui.heading("Presets");
@@ -1185,6 +1196,21 @@ impl eframe::App for Gts {
                 },
             );
         });
+
+        // Apply edits to the live status shortly after you stop changing things.
+        if self.config.live_update {
+            if let Some(id) = self.playing.clone() {
+                let current = serde_json::to_string(&self.style).unwrap_or_default();
+                if current != self.last_sent {
+                    let since = *self.dirty_since.get_or_insert_with(std::time::Instant::now);
+                    if since.elapsed() >= std::time::Duration::from_millis(600) {
+                        self.push(&id);
+                    } else {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+                    }
+                }
+            }
+        }
 
         if retry {
             self.load();
