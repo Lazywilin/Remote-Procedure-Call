@@ -37,9 +37,59 @@ struct App {
     cover_image_hash: Option<String>,
     icon_hash: Option<String>,
     executables: Option<Vec<Exe>>,
+    third_party_skus: Option<Value>,
+}
+
+fn url_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
 }
 
 impl App {
+    /// Steam app id from Discord's data, if the game lists one.
+    fn steam_id(&self) -> Option<String> {
+        self.third_party_skus.as_ref()?.as_array()?.iter().find_map(|sku| {
+            let dist = sku.get("distributor")?.as_str()?;
+            if !dist.eq_ignore_ascii_case("steam") {
+                return None;
+            }
+            match sku.get("id").or_else(|| sku.get("sku"))? {
+                Value::String(s) => Some(s.clone()),
+                Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            }
+        })
+    }
+
+    /// Up to two store buttons. Steam links straight to the page when Discord
+    /// knows the Steam id, otherwise (and for PlayStation/Xbox) it's a search link.
+    fn store_links(&self, s: &Style) -> Vec<(String, String)> {
+        let q = url_encode(&self.name);
+        let mut v = vec![];
+        if s.store_steam {
+            let url = match self.steam_id() {
+                Some(id) => format!("https://store.steampowered.com/app/{id}"),
+                None => format!("https://store.steampowered.com/search/?term={q}"),
+            };
+            v.push(("Get on Steam".to_string(), url));
+        }
+        if s.store_ps {
+            v.push(("PlayStation Store".to_string(), format!("https://store.playstation.com/search/{q}")));
+        }
+        if s.store_xbox {
+            v.push(("Xbox Store".to_string(), format!("https://www.xbox.com/search?q={q}")));
+        }
+        v.truncate(2);
+        v
+    }
+
     fn matches(&self, q: &str) -> bool {
         self.name.to_lowercase().contains(q)
             || self.aliases.iter().flatten().any(|a| a.to_lowercase().contains(q))
@@ -128,6 +178,10 @@ struct Style {
     btn1_url: String,
     btn2_label: String,
     btn2_url: String,
+    auto_stores: bool,
+    store_steam: bool,
+    store_ps: bool,
+    store_xbox: bool,
 }
 
 fn unix_now() -> i64 {
@@ -144,7 +198,7 @@ fn clean(s: &str) -> Option<String> {
     (t.chars().count() >= 2).then(|| t.chars().take(128).collect())
 }
 
-fn payload(s: &Style, art: Option<String>) -> Value {
+fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Value {
     let now = unix_now();
     let secs = (parse_hours(&s.hours) * 3600.0) as i64;
     let mut act = serde_json::Map::new();
@@ -177,7 +231,7 @@ fn payload(s: &Style, art: Option<String>) -> Value {
         let cur = s.party_cur.trim().parse::<i64>().unwrap_or(1).clamp(1, max);
         act.insert("party".into(), json!({ "id": "gts-party", "size": [cur, max] }));
     }
-    let buttons: Vec<Value> = [(&s.btn1_label, &s.btn1_url), (&s.btn2_label, &s.btn2_url)]
+    let mut buttons: Vec<Value> = [(&s.btn1_label, &s.btn1_url), (&s.btn2_label, &s.btn2_url)]
         .into_iter()
         .filter_map(|(l, u)| {
             let (l, u) = (l.trim(), u.trim());
@@ -185,6 +239,12 @@ fn payload(s: &Style, art: Option<String>) -> Value {
                 .then(|| json!({ "label": l.chars().take(32).collect::<String>(), "url": u }))
         })
         .collect();
+    if buttons.is_empty() && s.auto_stores {
+        buttons = stores
+            .into_iter()
+            .map(|(label, url)| json!({ "label": label.chars().take(32).collect::<String>(), "url": url }))
+            .collect();
+    }
     if !buttons.is_empty() {
         act.insert("buttons".into(), Value::Array(buttons));
     }
@@ -417,7 +477,13 @@ impl Gts {
             tab: Tab::All,
             query: String::new(),
             genre: String::new(),
-            style: Style { hours: "0".into(), ..Style::default() },
+            style: Style {
+                hours: "0".into(),
+                auto_stores: true,
+                store_steam: true,
+                store_ps: true,
+                ..Style::default()
+            },
             config,
             preset_name: String::new(),
             auto_done: false,
@@ -457,7 +523,8 @@ impl Gts {
         } else {
             None
         };
-        let _ = self.tx.send(Cmd::Set { app_id: id.to_string(), payload: payload(&self.style, art) });
+        let stores = self.apps.iter().find(|a| a.id == id).map(|a| a.store_links(&self.style)).unwrap_or_default();
+        let _ = self.tx.send(Cmd::Set { app_id: id.to_string(), payload: payload(&self.style, art, stores) });
     }
 
     fn apply_preset(&mut self, i: usize) {
@@ -693,6 +760,17 @@ impl eframe::App for Gts {
                         ui.add(egui::TextEdit::singleline(label).hint_text(format!("Button {n}")).desired_width(90.0));
                         ui.add(egui::TextEdit::singleline(url).hint_text("https://…").desired_width(f32::INFINITY));
                     });
+                }
+
+                ui.add_space(4.0);
+                ui.checkbox(&mut self.style.auto_stores, "Auto store buttons (used when the two buttons above are empty)");
+                if self.style.auto_stores {
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.style.store_steam, "Steam");
+                        ui.checkbox(&mut self.style.store_ps, "PlayStation");
+                        ui.checkbox(&mut self.style.store_xbox, "Xbox");
+                    });
+                    ui.small("Discord allows 2 buttons, so the first two ticked are used. PlayStation and Xbox are search links.");
                 }
 
                 ui.add_space(8.0);
