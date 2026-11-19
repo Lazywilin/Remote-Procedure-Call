@@ -23,8 +23,8 @@ A small desktop app (Rust + egui) that lets you browse Discord's list of detecta
 ## Build and run
 
 ```bash
-git clone https://github.com/<you>/gts-rpc-gui
-cd gts-rpc-gui
+git clone https://github.com/Lazywilin/Remote-Procedure-Call
+cd Remote-Procedure-Call
 cargo run --release
 ```
 
@@ -47,8 +47,12 @@ cargo run --release
 
 ## Disclaimer
 
-Not affiliated with or endorsed by Discord. Showing a game you aren't playing is a cosmetic status only. Use it responsibly and in line with Discord's Terms of Service.
+Not affiliated with or endorsed by Discord. Showing a game you aren't playing is a cosmetic status only. Use it responsibly and in line with [Discord's Terms of Service](https://discord.com/safety/platform-manipulation-policy-explainer).
 
 ## License
 
-GPL-3.0-or-later. This project's feature set is derived from the GameTimeSpoof Equicord plugin (GPL-3.0-or-later), with the analytics/badge code removed. Keep that credit and license when you publish.
+GPL-3.0-or-later.
+
+## Credits
+
+Based on the [gameTimeSpoof plugin](https://github.com/LostMorality/cordmuffin/tree/main/custom-creations/gameTimeSpoof) from LostMorality/cordmuffin (GPL-3.0-or-later). This is a Rust rewrite of its game browser and status features. The play-time and badge code is not included.
