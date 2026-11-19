@@ -3,6 +3,10 @@ name = "gts-rpc-gui"
 version = "0.2.0"
 edition = "2021"
 
+[[bin]]
+name = "gts-rpc-gui"
+path = "main.rs"
+
 [dependencies]
 eframe = "0.31"
 egui_extras = { version = "0.31", features = ["all_loaders"] }

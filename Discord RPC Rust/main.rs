@@ -184,12 +184,51 @@ struct Style {
     store_xbox: bool,
 }
 
+/// Maximum hours allowed for a timer.
+/// 
+/// - **Why this limit?** i64 timestamps must stay within safe bounds:
+///   - Current Unix timestamp: ~1.7 billion seconds (as of 2026)
+///   - i64 max: ~9.2e18 seconds (~292 billion years from now)
+///   - Discord RPC may reject extreme timestamps
+///   - For elapsed timers: `now - secs` must stay positive and reasonable
+///   - For countdown timers: we avoid overflow when computing `now + secs`
+///   
+/// We cap at **one year** (31,536,000 seconds = 365 days) which is:
+/// - ~8760 hours, or roughly 9000 to be precise
+/// - More than sufficient for any legitimate use case
+/// - Prevents overflow attacks and absurd timer values
+const MAX_HOURS: f64 = 9000.0;
+
 fn unix_now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-fn parse_hours(s: &str) -> f64 {
-    s.trim().parse::<f64>().unwrap_or(0.0).max(0.0)
+/// Parses hours from a string, clamping invalid inputs to safe bounds.
+/// 
+/// # Returns
+/// - `Some(hours)` for valid, finite values within reasonable bounds (0 to MAX_HOURS)
+/// - `None` if the input is empty, NaN, or Infinity
+fn parse_hours(s: &str) -> Option<f64> {
+    let trimmed = s.trim();
+    
+    // Reject empty strings immediately
+    if trimmed.is_empty() {
+        return None;
+    }
+    
+    // Parse into f64
+    let hours = trimmed.parse::<f64>()?;
+    
+    // Reject NaN and Infinity before any arithmetic
+    if !hours.is_finite() {
+        return None;
+    }
+    
+    // Ensure non-negative
+    let hours = hours.max(0.0);
+    
+    // Clamp to maximum to prevent overflow in timestamp calculations
+    Some(hours.min(MAX_HOURS))
 }
 
 /// Discord needs 2 to 128 characters per text line.
@@ -200,7 +239,7 @@ fn clean(s: &str) -> Option<String> {
 
 fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Value {
     let now = unix_now();
-    let secs = (parse_hours(&s.hours) * 3600.0) as i64;
+    let secs = parse_hours(&s.hours).map(|h| (h * 3600.0) as i64).unwrap_or(0);
     let mut act = serde_json::Map::new();
     act.insert("type".into(), json!(s.kind.code()));
     if let Some(d) = clean(&s.details) {
@@ -269,7 +308,7 @@ fn preview(game: &str, s: &Style) -> String {
         let cur = s.party_cur.trim().parse::<i64>().unwrap_or(1).clamp(1, max);
         out += &format!("  ({cur} of {max})");
     }
-    let h = parse_hours(&s.hours);
+    let h = parse_hours(&s.hours).unwrap_or(0.0);
     let (hh, mm) = (h as i64, ((h.fract()) * 60.0) as i64);
     match s.timer {
         Timer::Elapsed => out += &format!("\n{hh:02}:{mm:02}:00 elapsed"),
@@ -926,4 +965,52 @@ fn main() -> eframe::Result {
             Ok(Box::new(Gts::new(cc.egui_ctx.clone())))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_hours_normal_values() {
+        assert_eq!(parse_hours("0").unwrap(), 0.0);
+        assert_eq!(parse_hours("1").unwrap(), 1.0);
+        assert_eq!(parse_hours("25").unwrap(), 25.0);
+        assert_eq!(parse_hours("100").unwrap(), 100.0);
+        assert_eq!(parse_hours(&format!("{}", MAX_HOURS)).unwrap(), MAX_HOURS);
+        assert_eq!(parse_hours("10000").unwrap(), MAX_HOURS);
+    }
+
+    #[test]
+    fn test_parse_hours_empty_or_whitespace() {
+        assert_eq!(parse_hours("").is_none(), true);
+        assert_eq!(parse_hours("   ").is_none(), true);
+        assert_eq!(parse_hours("hello").is_none(), true);
+    }
+
+    #[test]
+    fn test_parse_hours_nan_infinity() {
+        assert_eq!(parse_hours("NaN").is_none(), true);
+        assert_eq!(parse_hours("Infinity").is_none(), true);
+        assert_eq!(parse_hours(&f64::INFINITY.to_string()), None);
+    }
+
+    #[test]
+    fn test_parse_hours_negative_values() {
+        // Negative becomes 0 via .max(0.0)
+        assert_eq!(parse_hours("-1").unwrap(), 0.0);
+        assert_eq!(parse_hours("-5.5").unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_seconds_no_overflow() {
+        let max_secs: i64 = (MAX_HOURS * 3600.0) as i64;
+        assert!((max_secs + 1i64) > 0);
+        assert!(max_secs < i64::MAX / 2);
+    }
+
+    #[test]
+    fn test_parse_hours_zero_cases() {
+        assert_eq!(parse_hours("0").unwrap(), 0.0);
+    }
 }

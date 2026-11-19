@@ -25,6 +25,7 @@ A small desktop app (Rust + egui) that lets you browse Discord's list of detecta
 ```bash
 git clone https://github.com/Lazywilin/Remote-Procedure-Call
 cd Remote-Procedure-Call
+cd "Discord RPC Rust"
 cargo run --release
 ```
 
