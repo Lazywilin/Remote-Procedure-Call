@@ -383,7 +383,6 @@ fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Val
             json!({ "id": "gts-party", "size": [cur, max] }),
         );
     }
-    // Build button list - custom buttons take precedence over store buttons
     let mut buttons: Vec<Value> = [(&s.btn1_label, &s.btn1_url), (&s.btn2_label, &s.btn2_url)]
         .into_iter()
         .filter_map(|(l, u)| {
@@ -392,19 +391,12 @@ fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Val
                 .then(|| json!({ "label": l.chars().take(32).collect::<String>(), "url": u }))
         })
         .collect();
-    
-    // Fall back to store buttons only if auto_stores is enabled and no valid custom buttons were configured
-    if s.auto_stores && stores.is_empty() && buttons.is_empty() {
-        // Use store links as fallback for empty custom buttons when auto_stores is enabled
+    if buttons.is_empty() && s.auto_stores {
         buttons = stores
             .into_iter()
             .map(|(label, url)| json!({ "label": label.chars().take(32).collect::<String>(), "url": url }))
             .collect();
-    } else if !s.auto_stores {
-        // auto_stores disabled - buttons remain as user-configured (or empty)
-        // Don't use store links, only send user-defined custom buttons
     }
-    
     if !buttons.is_empty() {
         act.insert("buttons".into(), Value::Array(buttons));
     }
@@ -1303,7 +1295,6 @@ impl eframe::App for Gts {
                         field(ui, p, "Buttons", |ui| {
                             ui.checkbox(&mut self.style.auto_stores, "Add store buttons automatically");
                             if self.style.auto_stores {
-                                // Store buttons enabled - show store type options
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut self.style.store_steam, "Steam");
                                     ui.checkbox(&mut self.style.store_ps, "PlayStation");
@@ -1311,19 +1302,17 @@ impl eframe::App for Gts {
                                     ui.checkbox(&mut self.style.store_xbox, "Xbox");
                                 });
                                 ui.label(rt("Two buttons at most. PlayStation and Xbox open a store search", p.muted).size(12.0));
-                            } else {
-                                // Custom buttons enabled - show custom button fields
-                                for (label, url, n) in [
-                                    (&mut self.style.btn1_label, &mut self.style.btn1_url, 1),
-                                    (&mut self.style.btn2_label, &mut self.style.btn2_url, 2),
-                                ] {
-                                    ui.horizontal(|ui| {
-                                        ui.add(egui::TextEdit::singleline(label).hint_text(format!("Button {n}")).desired_width(96.0));
-                                        ui.add(egui::TextEdit::singleline(url).hint_text("https://\u{2026}").desired_width(f32::INFINITY));
-                                    });
-                                }
-                                ui.label(rt("Your own buttons replace the store ones. Others see them, you don't", p.muted).size(12.0));
                             }
+                            for (label, url, n) in [
+                                (&mut self.style.btn1_label, &mut self.style.btn1_url, 1),
+                                (&mut self.style.btn2_label, &mut self.style.btn2_url, 2),
+                            ] {
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::TextEdit::singleline(label).hint_text(format!("Button {n}")).desired_width(96.0));
+                                    ui.add(egui::TextEdit::singleline(url).hint_text("https://\u{2026}").desired_width(f32::INFINITY));
+                                });
+                            }
+                            ui.label(rt("Your own buttons replace the store ones. Others see them, you don't", p.muted).size(12.0));
                         });
                     }
                     Pane::Presets => {
