@@ -21,8 +21,8 @@ const DETECTABLE_URL: &str = "https://discord.com/api/v9/applications/detectable
 /// If you move the project folder, change this link to match.
 const PS_BADGE_URL: &str =
     "https://raw.githubusercontent.com/Lazywilin/Remote-Procedure-Call/main/Discord%20RPC%20Rust/assets/playstation-logo.png";
-const CARD_W: f32 = 170.0;
-const ROW_H: f32 = 330.0;
+const CARD_W: f32 = 176.0;
+const CARD_H: f32 = 320.0;
 
 // ---------- game data ----------
 
@@ -232,14 +232,13 @@ impl Platform {
             Platform::Pc => "PC",
         }
     }
-    /// The PlayStation face-button symbols are real Unicode characters, which is
-    /// the closest thing to a logo that works in plain text.
+    /// Plain text only. Discord's own platform header and logo can't be set from here.
     fn tag(self) -> Option<&'static str> {
         match self {
             Platform::None => None,
-            Platform::PlayStation5 => Some("on PlayStation 5 \u{25B3} \u{25CB} \u{2715} \u{25A1}"),
-            Platform::PlayStation4 => Some("on PlayStation 4 \u{25B3} \u{25CB} \u{2715} \u{25A1}"),
-            Platform::Xbox => Some("on Xbox Series X|S \u{24CD}"),
+            Platform::PlayStation5 => Some("on PlayStation 5"),
+            Platform::PlayStation4 => Some("on PlayStation 4"),
+            Platform::Xbox => Some("on Xbox Series X|S"),
             Platform::Pc => Some("on PC"),
         }
     }
@@ -411,29 +410,6 @@ fn payload(s: &Style, art: Option<String>, stores: Vec<(String, String)>) -> Val
     })
 }
 
-fn preview(game: &str, s: &Style) -> String {
-    let mut out = format!("{} {game}", s.kind.label());
-    if let Some(d) = clean(&s.details) {
-        out += &format!("\n{d}");
-    }
-    if let Some(d) = state_line(s) {
-        out += &format!("\n{d}");
-    }
-    let max: i64 = s.party_max.trim().parse().unwrap_or(0);
-    if max > 0 {
-        let cur = s.party_cur.trim().parse::<i64>().unwrap_or(1).clamp(1, max);
-        out += &format!("  ({cur} of {max})");
-    }
-    let h = parse_hours(&s.hours).unwrap_or(0.0);
-    let (hh, mm) = (h as i64, ((h.fract()) * 60.0) as i64);
-    match s.timer {
-        Timer::Elapsed => out += &format!("\n{hh:02}:{mm:02}:00 elapsed"),
-        Timer::Countdown => out += &format!("\n{hh:02}:{mm:02}:00 left"),
-        Timer::Hidden => {}
-    }
-    out
-}
-
 // ---------- config / presets ----------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -449,7 +425,6 @@ struct Preset {
 struct Config {
     presets: Vec<Preset>,
     light: bool,
-    accent: [u8; 3],
     auto_preset: Option<String>,
     live_update: bool,
 }
@@ -459,7 +434,6 @@ impl Default for Config {
         Self {
             presets: vec![],
             light: false,
-            accent: [35, 165, 90],
             auto_preset: None,
             live_update: true,
         }
@@ -509,19 +483,91 @@ fn save_favs(favs: &BTreeSet<String>) {
     );
 }
 
-fn accent_color(c: [u8; 3]) -> Color32 {
-    Color32::from_rgb(c[0], c[1], c[2])
+/// One neutral ramp. Text has three roles (text, text2, muted) and the primary
+/// action is the inverse of the background, so the whole app stays monochrome.
+#[derive(Clone, Copy)]
+struct Palette {
+    bg: Color32,
+    panel: Color32,
+    surface: Color32,
+    raised: Color32,
+    line: Color32,
+    text: Color32,
+    text2: Color32,
+    muted: Color32,
+    primary: Color32,
+    on_primary: Color32,
+}
+
+fn palette(light: bool) -> Palette {
+    if light {
+        Palette {
+            bg: Color32::from_rgb(244, 244, 244),
+            panel: Color32::from_rgb(255, 255, 255),
+            surface: Color32::from_rgb(240, 240, 240),
+            raised: Color32::from_rgb(228, 228, 228),
+            line: Color32::from_black_alpha(24),
+            text: Color32::from_rgb(23, 23, 23),
+            text2: Color32::from_rgb(82, 82, 82),
+            muted: Color32::from_rgb(107, 107, 107),
+            primary: Color32::from_rgb(23, 23, 23),
+            on_primary: Color32::from_rgb(250, 250, 250),
+        }
+    } else {
+        Palette {
+            bg: Color32::from_rgb(20, 20, 20),
+            panel: Color32::from_rgb(26, 26, 26),
+            surface: Color32::from_rgb(34, 34, 34),
+            raised: Color32::from_rgb(46, 46, 46),
+            line: Color32::from_white_alpha(20),
+            text: Color32::from_rgb(237, 237, 237),
+            text2: Color32::from_rgb(170, 170, 170),
+            muted: Color32::from_rgb(138, 138, 138),
+            primary: Color32::from_rgb(237, 237, 237),
+            on_primary: Color32::from_rgb(20, 20, 20),
+        }
+    }
 }
 
 fn apply_theme(ctx: &egui::Context, cfg: &Config) {
-    let mut v = if cfg.light {
-        egui::Visuals::light()
-    } else {
-        egui::Visuals::dark()
-    };
-    v.selection.bg_fill = accent_color(cfg.accent);
-    v.hyperlink_color = accent_color(cfg.accent);
+    use egui::{CornerRadius, FontId, TextStyle};
+    let p = palette(cfg.light);
+    let mut v = if cfg.light { egui::Visuals::light() } else { egui::Visuals::dark() };
+    v.panel_fill = p.bg;
+    v.window_fill = p.panel;
+    v.extreme_bg_color = p.surface;
+    v.faint_bg_color = p.surface;
+    v.hyperlink_color = p.text;
+    v.selection.bg_fill = p.raised;
+    v.selection.stroke = Stroke::new(1.0, p.text);
+    let radius = CornerRadius::same(8);
+    let text = Stroke::new(1.0, p.text);
+    v.widgets.noninteractive.bg_fill = p.panel;
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, p.line);
+    v.widgets.noninteractive.fg_stroke = text;
+    v.widgets.noninteractive.corner_radius = radius;
+    for (w, fill) in [
+        (&mut v.widgets.inactive, p.surface),
+        (&mut v.widgets.hovered, p.raised),
+        (&mut v.widgets.active, p.raised),
+        (&mut v.widgets.open, p.raised),
+    ] {
+        w.bg_fill = fill;
+        w.weak_bg_fill = fill;
+        w.bg_stroke = Stroke::new(1.0, p.line);
+        w.fg_stroke = text;
+        w.corner_radius = radius;
+    }
     ctx.set_visuals(v);
+    ctx.style_mut(|s| {
+        s.spacing.item_spacing = Vec2::new(8.0, 8.0);
+        s.spacing.button_padding = Vec2::new(12.0, 6.0);
+        s.spacing.interact_size = Vec2::new(40.0, 32.0);
+        s.text_styles.insert(TextStyle::Heading, FontId::proportional(16.0));
+        s.text_styles.insert(TextStyle::Body, FontId::proportional(14.0));
+        s.text_styles.insert(TextStyle::Button, FontId::proportional(14.0));
+        s.text_styles.insert(TextStyle::Small, FontId::proportional(12.0));
+    });
 }
 
 // ---------- detected games (local process scan) ----------
@@ -571,7 +617,7 @@ fn presence_worker(rx: mpsc::Receiver<Cmd>, status: Arc<Mutex<String>>) {
                     let _ = c.clear_activity();
                     let _ = c.close();
                 }
-                *status.lock().unwrap() = "Status cleared.".into();
+                *status.lock().unwrap() = "Status cleared".into();
             }
             Cmd::Set { app_id, payload } => {
                 // A different game needs a new connection; the same game just updates.
@@ -591,7 +637,7 @@ fn presence_worker(rx: mpsc::Receiver<Cmd>, status: Arc<Mutex<String>>) {
                     c.send(payload, 1).map_err(|e| e.to_string())
                 })();
                 *status.lock().unwrap() = match result {
-                    Ok(()) => "Status is live.".to_string(),
+                    Ok(()) => "Status is live".to_string(),
                     Err(e) => {
                         client = None;
                         format!("Couldn't reach the Discord desktop client: {e}")
@@ -611,6 +657,14 @@ enum Tab {
     Detected,
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum Pane {
+    Status,
+    Extras,
+    Presets,
+    Settings,
+}
+
 enum Act {
     Play(String),
     Update,
@@ -622,6 +676,7 @@ enum Act {
     DeletePreset(usize),
     ToggleAuto(String),
     ThemeChanged,
+    SaveConfig,
 }
 
 struct Gts {
@@ -638,6 +693,8 @@ struct Gts {
     style: Style,
     config: Config,
     preset_name: String,
+    pane: Pane,
+    pal: Palette,
     auto_done: bool,
     last_sent: String,
     dirty_since: Option<std::time::Instant>,
@@ -674,6 +731,8 @@ impl Gts {
                 store_ps: true,
                 ..Style::default()
             },
+            pane: Pane::Status,
+            pal: palette(config.light),
             config,
             preset_name: String::new(),
             auto_done: false,
@@ -811,69 +870,207 @@ impl Gts {
             }
             Act::ThemeChanged => {
                 apply_theme(&self.ctx, &self.config);
+                self.pal = palette(self.config.light);
                 save_config(&self.config);
             }
+            Act::SaveConfig => save_config(&self.config),
         }
     }
 }
 
-fn card(
-    ui: &mut egui::Ui,
-    app: &App,
-    fav: bool,
-    active: bool,
-    accent: Color32,
-    acts: &mut Vec<Act>,
-) {
-    ui.allocate_ui(Vec2::new(CARD_W, ROW_H - 10.0), |ui| {
-        let stroke = if active {
-            Stroke::new(2.0_f32, accent)
-        } else {
-            ui.visuals().widgets.noninteractive.bg_stroke
-        };
-        egui::Frame::group(ui.style())
+// ---------- widgets ----------
+
+fn rt(text: impl Into<String>, color: Color32) -> RichText {
+    RichText::new(text).color(color)
+}
+
+fn primary_button(p: Palette, text: &str) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text).color(p.on_primary).strong()).fill(p.primary)
+}
+
+fn seg<T: PartialEq + Copy>(ui: &mut egui::Ui, current: &mut T, items: &[(T, &str)]) {
+    ui.horizontal(|ui| {
+        for (value, label) in items {
+            ui.selectable_value(current, *value, *label);
+        }
+    });
+}
+
+fn field(ui: &mut egui::Ui, p: Palette, label: &str, add: impl FnOnce(&mut egui::Ui)) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 4.0;
+        ui.label(rt(label, p.text2).size(12.0));
+        add(ui);
+    });
+    ui.add_space(8.0);
+}
+
+/// Filled dot = showing, hollow dot = not showing.
+fn status_dot(ui: &mut egui::Ui, on: bool, p: Palette) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
+    let c = rect.center();
+    if on {
+        ui.painter().circle_filled(c, 4.5, p.text);
+    } else {
+        ui.painter().circle_stroke(c, 4.0, Stroke::new(1.5, p.muted));
+    }
+}
+
+fn star_button(ui: &mut egui::Ui, filled: bool, p: Palette) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), egui::Sense::click());
+    let color = if filled || resp.hovered() { p.text } else { p.muted };
+    let c = rect.center();
+    let pts: Vec<egui::Pos2> = (0..10)
+        .map(|i| {
+            let r = if i % 2 == 0 { 9.0 } else { 3.8 };
+            let a = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::PI / 5.0;
+            egui::pos2(c.x + r * a.cos(), c.y + r * a.sin())
+        })
+        .collect();
+    if filled {
+        for i in 0..10 {
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![c, pts[i], pts[(i + 1) % 10]],
+                color,
+                Stroke::NONE,
+            ));
+        }
+    }
+    ui.painter().add(egui::Shape::closed_line(pts, Stroke::new(1.5, color)));
+    resp.on_hover_text(if filled { "Remove from favorites" } else { "Add to favorites" })
+}
+
+fn tile(ui: &mut egui::Ui, size: Vec2, name: &str, p: Palette, font: f32) {
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect_filled(rect, egui::CornerRadius::same(6), p.raised);
+    let letter = name
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_default();
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        letter,
+        egui::FontId::proportional(font),
+        p.muted,
+    );
+}
+
+fn timer_text(s: &Style) -> Option<String> {
+    let h = parse_hours(&s.hours).unwrap_or(0.0);
+    let (hh, mm) = (h as i64, (h.fract() * 60.0) as i64);
+    match s.timer {
+        Timer::Elapsed => Some(format!("{hh:02}:{mm:02}:00 elapsed")),
+        Timer::Countdown => Some(format!("{hh:02}:{mm:02}:00 left")),
+        Timer::Hidden => None,
+    }
+}
+
+/// The button labels the status will actually show.
+fn button_labels(app: Option<&App>, s: &Style) -> Vec<String> {
+    let valid = |u: &str| u.trim().starts_with("https://") || u.trim().starts_with("http://");
+    let manual: Vec<String> = [(&s.btn1_label, &s.btn1_url), (&s.btn2_label, &s.btn2_url)]
+        .into_iter()
+        .filter(|(l, u)| !l.trim().is_empty() && valid(u))
+        .map(|(l, _)| l.trim().to_string())
+        .collect();
+    if !manual.is_empty() {
+        return manual;
+    }
+    if s.auto_stores {
+        if let Some(a) = app {
+            return a.store_links(s).into_iter().map(|(l, _)| l).collect();
+        }
+    }
+    vec![]
+}
+
+/// Looks like Discord's own activity card, so you see what others will see.
+fn preview_card(ui: &mut egui::Ui, p: Palette, app: Option<&App>, s: &Style) {
+    egui::Frame::new()
+        .fill(p.surface)
+        .stroke(Stroke::new(1.0, p.line))
+        .corner_radius(egui::CornerRadius::same(12))
+        .inner_margin(egui::Margin::same(12))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let Some(a) = app else {
+                ui.label(rt("Pick a game to preview your status", p.muted));
+                return;
+            };
+            ui.label(rt(s.kind.label(), p.muted).size(12.0));
+            ui.add_space(4.0);
+            ui.horizontal_top(|ui| {
+                match a.art_url().or_else(|| a.image_url()) {
+                    Some(url) => {
+                        ui.add(egui::Image::new(url).fit_to_exact_size(Vec2::splat(64.0)));
+                    }
+                    None => tile(ui, Vec2::splat(64.0), &a.name, p, 24.0),
+                }
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.add(egui::Label::new(RichText::new(&a.name).strong()).truncate());
+                    if let Some(d) = clean(&s.details) {
+                        ui.add(egui::Label::new(rt(d, p.text2)).truncate());
+                    }
+                    if let Some(d) = state_line(s) {
+                        ui.add(egui::Label::new(rt(d, p.text2)).truncate());
+                    }
+                    if let Some(t) = timer_text(s) {
+                        ui.label(rt(t, p.muted).size(12.0));
+                    }
+                });
+            });
+            let buttons = button_labels(Some(a), s);
+            if !buttons.is_empty() {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    for b in buttons {
+                        ui.add(egui::Button::new(rt(b, p.text2).size(12.0)).fill(p.panel));
+                    }
+                });
+            }
+        });
+}
+
+fn card(ui: &mut egui::Ui, p: Palette, app: &App, fav: bool, active: bool, acts: &mut Vec<Act>) {
+    ui.allocate_ui(Vec2::new(CARD_W, CARD_H), |ui| {
+        let stroke = if active { Stroke::new(2.0, p.primary) } else { Stroke::new(1.0, p.line) };
+        egui::Frame::new()
+            .fill(p.surface)
             .stroke(stroke)
-            .fill(ui.visuals().faint_bg_color)
+            .corner_radius(egui::CornerRadius::same(10))
+            .inner_margin(egui::Margin::same(8))
             .show(ui, |ui| {
-                ui.set_width(CARD_W - 20.0);
-                ui.set_height(ROW_H - 34.0);
+                let w = CARD_W - 20.0;
+                ui.set_width(w);
+                ui.set_height(CARD_H - 20.0);
+                ui.spacing_mut().item_spacing.y = 8.0;
+                let size = Vec2::new(w, 208.0);
                 match app.image_url() {
                     Some(url) => {
                         let r = ui
-                            .add(
-                                egui::Image::new(url)
-                                    .fit_to_exact_size(Vec2::new(CARD_W - 20.0, 200.0))
-                                    .sense(egui::Sense::click()),
-                            )
+                            .add(egui::Image::new(url).fit_to_exact_size(size).sense(egui::Sense::click()))
                             .on_hover_text("View game page");
                         if r.clicked() {
                             acts.push(Act::Open(app.id.clone()));
                         }
                     }
-                    None => {
-                        ui.allocate_ui(Vec2::new(CARD_W - 20.0, 200.0), |ui| {
-                            ui.centered_and_justified(|ui| ui.label("🎮"))
-                        });
-                    }
-                }
-                if active {
-                    ui.label(RichText::new("● Showing").color(accent).strong());
+                    None => tile(ui, size, &app.name, p, 40.0),
                 }
                 ui.add(egui::Label::new(RichText::new(&app.name).strong()).truncate());
-                ui.add(egui::Label::new(RichText::new(app.genres()).weak().small()).truncate());
+                ui.add(egui::Label::new(rt(app.genres(), p.muted).size(12.0)).truncate());
                 ui.horizontal(|ui| {
+                    let btn = Vec2::new(w - 28.0 - ui.spacing().item_spacing.x, 28.0);
                     if active {
-                        if ui.button("Stop").clicked() {
+                        if ui.add_sized(btn, egui::Button::new("Stop").fill(p.raised)).clicked() {
                             acts.push(Act::Stop);
                         }
-                    } else if ui.button("Spoof").clicked() {
+                    } else if ui.add_sized(btn, primary_button(p, "Spoof")).clicked() {
                         acts.push(Act::Play(app.id.clone()));
                     }
-                    if ui
-                        .button(if fav { "★" } else { "☆" })
-                        .on_hover_text("Favorite")
-                        .clicked()
-                    {
+                    if star_button(ui, fav, p).clicked() {
                         acts.push(Act::Fav(app.id.clone()));
                     }
                 });
@@ -892,9 +1089,7 @@ impl eframe::App for Gts {
                         if !self.auto_done {
                             self.auto_done = true;
                             if let Some(name) = self.config.auto_preset.clone() {
-                                if let Some(i) =
-                                    self.config.presets.iter().position(|p| p.name == name)
-                                {
+                                if let Some(i) = self.config.presets.iter().position(|p| p.name == name) {
                                     self.apply_preset(i);
                                 }
                             }
@@ -912,290 +1107,342 @@ impl eframe::App for Gts {
             }
         }
 
-        let genres: BTreeSet<&String> = self
-            .apps
-            .iter()
-            .flat_map(|a| a.themes.iter().flatten())
-            .collect();
-        let accent = accent_color(self.config.accent);
+        let p = self.pal;
+        let genres: BTreeSet<&String> = self.apps.iter().flat_map(|a| a.themes.iter().flatten()).collect();
         let mut acts: Vec<Act> = vec![];
         let mut retry = false;
         let mut rescan = false;
+        let playing_name: Option<String> = self
+            .playing
+            .as_ref()
+            .and_then(|id| self.apps.iter().find(|a| &a.id == id))
+            .map(|a| a.name.clone());
 
-        // ----- toolbar -----
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.selectable_value(&mut self.tab, Tab::All, "All Games");
-                let fav_label = if self.favs.is_empty() {
-                    "Favorites".to_string()
-                } else {
-                    format!("Favorites ({})", self.favs.len())
-                };
-                ui.selectable_value(&mut self.tab, Tab::Favorites, fav_label);
-                ui.selectable_value(&mut self.tab, Tab::Detected, "Detected");
-                if self.tab == Tab::Detected && ui.button("Rescan").clicked() {
-                    rescan = true;
-                }
-                ui.separator();
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.query)
-                        .hint_text("Search games")
-                        .desired_width(200.0),
-                );
-                egui::ComboBox::from_id_salt("genre")
-                    .selected_text(if self.genre.is_empty() {
-                        "All genres"
+        // ----- header -----
+        egui::TopBottomPanel::top("header")
+            .frame(egui::Frame::new().fill(p.panel).inner_margin(egui::Margin::symmetric(16, 12)))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.tab, Tab::All, "All");
+                    let fav = if self.favs.is_empty() {
+                        "Favorites".to_string()
                     } else {
-                        &self.genre
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.genre, String::new(), "All genres");
-                        for g in &genres {
-                            ui.selectable_value(&mut self.genre, (*g).clone(), g.as_str());
+                        format!("Favorites {}", self.favs.len())
+                    };
+                    ui.selectable_value(&mut self.tab, Tab::Favorites, fav);
+                    ui.selectable_value(&mut self.tab, Tab::Detected, "Detected");
+                    if self.tab == Tab::Detected && ui.button("Rescan").clicked() {
+                        rescan = true;
+                    }
+                    ui.add_space(8.0);
+                    ui.add(egui::TextEdit::singleline(&mut self.query).hint_text("Search").desired_width(220.0));
+                    egui::ComboBox::from_id_salt("genre")
+                        .selected_text(if self.genre.is_empty() { "All genres" } else { &self.genre })
+                        .width(150.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.genre, String::new(), "All genres");
+                            for g in &genres {
+                                ui.selectable_value(&mut self.genre, (*g).clone(), g.as_str());
+                            }
+                        });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match &playing_name {
+                        Some(name) => {
+                            if ui.add(egui::Button::new("Stop").fill(p.raised)).clicked() {
+                                acts.push(Act::Stop);
+                            }
+                            ui.add(egui::Label::new(RichText::new(format!("Showing {name}")).strong()).truncate());
+                            status_dot(ui, true, p);
+                        }
+                        None => {
+                            ui.label(rt("Not showing", p.muted));
+                            status_dot(ui, false, p);
                         }
                     });
+                });
+            });
+
+        // ----- editor -----
+        let play_app = self.playing.as_ref().and_then(|id| self.apps.iter().find(|a| &a.id == id));
+        egui::SidePanel::right("editor")
+            .exact_width(344.0)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(p.panel).inner_margin(egui::Margin::same(16)))
+            .show(ctx, |ui| {
+                ui.label(rt("Preview", p.muted).size(12.0));
+                preview_card(ui, p, play_app, &self.style);
                 let status = self.status.lock().unwrap().clone();
-                if !status.is_empty() {
-                    ui.separator();
-                    ui.label(status);
+                if status.starts_with("Couldn't") {
+                    ui.label(rt(status, p.text));
                 }
-            });
-            ui.add_space(6.0);
-        });
-
-        // ----- status editor -----
-        egui::SidePanel::right("editor").default_width(310.0).show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.heading("Status style");
-                ui.add_space(4.0);
-
-                ui.label("Activity type");
-                egui::ComboBox::from_id_salt("kind").selected_text(self.style.kind.label()).show_ui(ui, |ui| {
-                    for k in Kind::ALL {
-                        ui.selectable_value(&mut self.style.kind, k, k.label());
-                    }
-                });
-                ui.small("Discord may show everything as \"Playing\" on some versions.");
-
-                ui.add_space(6.0);
-                ui.label("Line 1");
-                ui.add(egui::TextEdit::singleline(&mut self.style.details).hint_text("details (2+ characters)").desired_width(f32::INFINITY));
-                ui.label("Line 2");
-                ui.add(egui::TextEdit::singleline(&mut self.style.state).hint_text("state (2+ characters)").desired_width(f32::INFINITY));
-                ui.horizontal(|ui| {
-                    ui.label("Platform tag");
-                    egui::ComboBox::from_id_salt("platform").selected_text(self.style.platform.label()).show_ui(ui, |ui| {
-                        for p in Platform::ALL {
-                            ui.selectable_value(&mut self.style.platform, p, p.label());
-                        }
-                    });
-                });
-                ui.small("Adds text like \"on PlayStation 5 \u{25B3} \u{25CB} \u{2715} \u{25A1}\" to line 2. Discord's own platform header can't be set.");
-                if ui.button("PlayStation look").on_hover_text("PS5 tag, game icon, PlayStation logo badge, elapsed timer").clicked() {
-                    self.style.platform = Platform::PlayStation5;
-                    self.style.use_art = true;
-                    self.style.kind = Kind::Playing;
-                    self.style.timer = Timer::Elapsed;
-                    self.style.small_image_url = PS_BADGE_URL.to_string();
-                    self.style.small_text = "PlayStation".to_string();
-                }
-
-                ui.add_space(6.0);
-                ui.label("Timer");
-                ui.horizontal(|ui| {
-                    for (t, l) in [(Timer::Elapsed, "Elapsed"), (Timer::Countdown, "Countdown"), (Timer::Hidden, "Hidden")] {
-                        ui.selectable_value(&mut self.style.timer, t, l);
-                    }
-                });
-                if self.style.timer != Timer::Hidden {
-                    ui.horizontal(|ui| {
-                        ui.label(if self.style.timer == Timer::Elapsed { "Started (hours ago)" } else { "Ends in (hours)" });
-                        ui.add(egui::TextEdit::singleline(&mut self.style.hours).desired_width(60.0));
-                    });
-                }
-
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.label("Party size");
-                    ui.add(egui::TextEdit::singleline(&mut self.style.party_cur).hint_text("1").desired_width(36.0));
-                    ui.label("of");
-                    ui.add(egui::TextEdit::singleline(&mut self.style.party_max).hint_text("0 = off").desired_width(50.0));
-                });
-
-                ui.add_space(6.0);
-                ui.checkbox(&mut self.style.use_art, "Use the game's icon as the large image");
-                if self.style.use_art {
-                    ui.add(egui::TextEdit::singleline(&mut self.style.large_text).hint_text("image hover text").desired_width(f32::INFINITY));
-                }
-                ui.label("Small badge image (optional, direct https link to a PNG)");
-                ui.add(egui::TextEdit::singleline(&mut self.style.small_image_url).hint_text("https://\u{2026}/logo.png").desired_width(f32::INFINITY));
-                if !self.style.small_image_url.trim().is_empty() {
-                    ui.add(egui::TextEdit::singleline(&mut self.style.small_text).hint_text("badge hover text").desired_width(f32::INFINITY));
-                }
-
-                ui.add_space(6.0);
-                ui.label("Buttons (https links only, others can see them, you can't)");
-                for (label, url, n) in [
-                    (&mut self.style.btn1_label, &mut self.style.btn1_url, 1),
-                    (&mut self.style.btn2_label, &mut self.style.btn2_url, 2),
-                ] {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(label).hint_text(format!("Button {n}")).desired_width(90.0));
-                        ui.add(egui::TextEdit::singleline(url).hint_text("https://…").desired_width(f32::INFINITY));
-                    });
-                }
-
-                ui.add_space(4.0);
-                ui.checkbox(&mut self.style.auto_stores, "Auto store buttons (used when the two buttons above are empty)");
-                if self.style.auto_stores {
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.style.store_steam, "Steam");
-                        ui.checkbox(&mut self.style.store_ps, "PlayStation");
-                        ui.checkbox(&mut self.style.store_xbox, "Xbox");
-                    });
-                    ui.small("Discord allows 2 buttons, so the first two ticked are used. PlayStation and Xbox are search links.");
-                }
-
                 ui.add_space(8.0);
-                let game = self
-                    .playing
-                    .as_ref()
-                    .and_then(|id| self.apps.iter().find(|a| &a.id == id))
-                    .map(|a| a.name.as_str())
-                    .unwrap_or("(pick a game)");
-                egui::Frame::group(ui.style()).fill(ui.visuals().faint_bg_color).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Preview").weak().small());
-                    ui.label(preview(game, &self.style));
-                });
-                if ui.add_enabled(self.playing.is_some(), egui::Button::new("Update status")).clicked() {
-                    acts.push(Act::Update);
-                }
-                if ui.checkbox(&mut self.config.live_update, "Update automatically").changed() {
-                    acts.push(Act::ThemeChanged);
-                }
-
-                ui.separator();
-                ui.heading("Presets");
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.preset_name).hint_text("preset name").desired_width(150.0));
-                    let can = self.playing.is_some() && !self.preset_name.trim().is_empty();
-                    if ui.add_enabled(can, egui::Button::new("Save")).on_hover_text("Saves the current game + style").clicked() {
-                        acts.push(Act::SavePreset);
+                    for (pane, label) in [
+                        (Pane::Status, "Status"),
+                        (Pane::Extras, "Extras"),
+                        (Pane::Presets, "Presets"),
+                        (Pane::Settings, "Settings"),
+                    ] {
+                        ui.selectable_value(&mut self.pane, pane, label);
                     }
                 });
-                if self.config.presets.is_empty() {
-                    ui.small("Spoof a game, style it, name it, then Save.");
-                }
-                for (i, p) in self.config.presets.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(format!("{} ({})", p.name, p.app_name)).truncate());
-                        if ui.small_button("Apply").clicked() {
-                            acts.push(Act::ApplyPreset(i));
+                ui.separator();
+                let pane = self.pane;
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match pane {
+                    Pane::Status => {
+                        field(ui, p, "Activity", |ui| {
+                            egui::ComboBox::from_id_salt("kind")
+                                .selected_text(self.style.kind.label())
+                                .width(ui.available_width())
+                                .show_ui(ui, |ui| {
+                                    for k in Kind::ALL {
+                                        ui.selectable_value(&mut self.style.kind, k, k.label());
+                                    }
+                                });
+                        });
+                        field(ui, p, "Line 1", |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.style.details)
+                                    .hint_text("Shown under the game name")
+                                    .desired_width(f32::INFINITY),
+                            );
+                        });
+                        field(ui, p, "Line 2", |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.style.state)
+                                    .hint_text("Shown under line 1")
+                                    .desired_width(f32::INFINITY),
+                            );
+                        });
+                        field(ui, p, "Timer", |ui| {
+                            seg(
+                                ui,
+                                &mut self.style.timer,
+                                &[(Timer::Elapsed, "Elapsed"), (Timer::Countdown, "Countdown"), (Timer::Hidden, "Hidden")],
+                            );
+                        });
+                        if self.style.timer != Timer::Hidden {
+                            let label = if self.style.timer == Timer::Elapsed { "Started hours ago" } else { "Ends in hours" };
+                            field(ui, p, label, |ui| {
+                                ui.add(egui::TextEdit::singleline(&mut self.style.hours).desired_width(80.0));
+                            });
                         }
-                        let auto = self.config.auto_preset.as_deref() == Some(p.name.as_str());
-                        if ui.selectable_label(auto, "⚡").on_hover_text("Apply automatically on launch").clicked() {
-                            acts.push(Act::ToggleAuto(p.name.clone()));
+                        field(ui, p, "Party size", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::TextEdit::singleline(&mut self.style.party_cur).hint_text("1").desired_width(48.0));
+                                ui.label(rt("of", p.text2));
+                                ui.add(egui::TextEdit::singleline(&mut self.style.party_max).hint_text("Off").desired_width(48.0));
+                            });
+                        });
+                        if !self.config.live_update {
+                            if ui.add_enabled(self.playing.is_some(), primary_button(p, "Update status")).clicked() {
+                                acts.push(Act::Update);
+                            }
                         }
-                        if ui.small_button("🗑").clicked() {
-                            acts.push(Act::DeletePreset(i));
+                    }
+                    Pane::Extras => {
+                        field(ui, p, "Platform", |ui| {
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_salt("platform")
+                                    .selected_text(self.style.platform.label())
+                                    .show_ui(ui, |ui| {
+                                        for pl in Platform::ALL {
+                                            ui.selectable_value(&mut self.style.platform, pl, pl.label());
+                                        }
+                                    });
+                                if ui.button("PlayStation look").clicked() {
+                                    self.style.platform = Platform::PlayStation5;
+                                    self.style.use_art = true;
+                                    self.style.kind = Kind::Playing;
+                                    self.style.timer = Timer::Elapsed;
+                                    self.style.small_image_url = PS_BADGE_URL.to_string();
+                                    self.style.small_text = "PlayStation".to_string();
+                                }
+                            });
+                        });
+                        field(ui, p, "Large image", |ui| {
+                            ui.checkbox(&mut self.style.use_art, "Use the game's icon");
+                            if self.style.use_art {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.style.large_text)
+                                        .hint_text("Hover text")
+                                        .desired_width(f32::INFINITY),
+                                );
+                            }
+                        });
+                        field(ui, p, "Badge image (PNG link)", |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.style.small_image_url)
+                                    .hint_text("https://\u{2026}/logo.png")
+                                    .desired_width(f32::INFINITY),
+                            );
+                            if !self.style.small_image_url.trim().is_empty() {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.style.small_text)
+                                        .hint_text("Hover text")
+                                        .desired_width(f32::INFINITY),
+                                );
+                            }
+                        });
+                        field(ui, p, "Buttons", |ui| {
+                            ui.checkbox(&mut self.style.auto_stores, "Add store buttons automatically");
+                            if self.style.auto_stores {
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut self.style.store_steam, "Steam");
+                                    ui.checkbox(&mut self.style.store_ps, "PlayStation");
+                                    ui.checkbox(&mut self.style.store_xbox, "Xbox");
+                                });
+                                ui.label(rt("Two buttons at most. PlayStation and Xbox open a store search", p.muted).size(12.0));
+                            }
+                            for (label, url, n) in [
+                                (&mut self.style.btn1_label, &mut self.style.btn1_url, 1),
+                                (&mut self.style.btn2_label, &mut self.style.btn2_url, 2),
+                            ] {
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::TextEdit::singleline(label).hint_text(format!("Button {n}")).desired_width(96.0));
+                                    ui.add(egui::TextEdit::singleline(url).hint_text("https://\u{2026}").desired_width(f32::INFINITY));
+                                });
+                            }
+                            ui.label(rt("Your own buttons replace the store ones. Others see them, you don't", p.muted).size(12.0));
+                        });
+                    }
+                    Pane::Presets => {
+                        field(ui, p, "Save the current setup", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::TextEdit::singleline(&mut self.preset_name).hint_text("Preset name").desired_width(200.0));
+                                let can = self.playing.is_some() && !self.preset_name.trim().is_empty();
+                                if ui.add_enabled(can, primary_button(p, "Save")).clicked() {
+                                    acts.push(Act::SavePreset);
+                                }
+                            });
+                            if self.playing.is_none() {
+                                ui.label(rt("Spoof a game first", p.muted).size(12.0));
+                            }
+                        });
+                        if self.config.presets.is_empty() {
+                            ui.label(rt("No presets yet", p.muted));
+                        }
+                        for (i, pr) in self.config.presets.iter().enumerate() {
+                            egui::Frame::new()
+                                .fill(p.surface)
+                                .corner_radius(egui::CornerRadius::same(8))
+                                .inner_margin(egui::Margin::same(8))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.spacing_mut().item_spacing.y = 2.0;
+                                            ui.add(egui::Label::new(RichText::new(&pr.name).strong()).truncate());
+                                            ui.add(egui::Label::new(rt(pr.app_name.clone(), p.muted).size(12.0)).truncate());
+                                        });
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            if ui.button("Delete").clicked() {
+                                                acts.push(Act::DeletePreset(i));
+                                            }
+                                            let auto = self.config.auto_preset.as_deref() == Some(pr.name.as_str());
+                                            if ui.selectable_label(auto, "On launch").clicked() {
+                                                acts.push(Act::ToggleAuto(pr.name.clone()));
+                                            }
+                                            if ui.button("Apply").clicked() {
+                                                acts.push(Act::ApplyPreset(i));
+                                            }
+                                        });
+                                    });
+                                });
+                        }
+                    }
+                    Pane::Settings => {
+                        field(ui, p, "Theme", |ui| {
+                            let mut light = self.config.light;
+                            seg(ui, &mut light, &[(false, "Dark"), (true, "Light")]);
+                            if light != self.config.light {
+                                self.config.light = light;
+                                acts.push(Act::ThemeChanged);
+                            }
+                        });
+                        field(ui, p, "Updates", |ui| {
+                            if ui.checkbox(&mut self.config.live_update, "Update the status as I edit").changed() {
+                                acts.push(Act::SaveConfig);
+                            }
+                        });
+                        ui.label(
+                            rt(
+                                "Start with --minimized and mark a preset On launch to have your status ready when Discord opens",
+                                p.muted,
+                            )
+                            .size(12.0),
+                        );
+                    }
+                });
+            });
+
+        // ----- games -----
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(p.bg).inner_margin(egui::Margin::same(16)))
+            .show(ctx, |ui| {
+                if let Some(e) = &self.load_error {
+                    ui.vertical_centered(|ui| {
+                        ui.label(rt(format!("Couldn't load Discord's game list: {e}"), p.text2));
+                        if ui.button("Try again").clicked() {
+                            retry = true;
                         }
                     });
+                    return;
+                }
+                if self.apps.is_empty() {
+                    ui.vertical_centered(|ui| ui.label(rt("Loading games", p.muted)));
+                    return;
                 }
 
-                ui.separator();
-                ui.heading("Look");
-                let mut changed = false;
-                changed |= ui.checkbox(&mut self.config.light, "Light theme").changed();
-                ui.horizontal(|ui| {
-                    ui.label("Accent color");
-                    changed |= ui.color_edit_button_srgb(&mut self.config.accent).changed();
-                });
-                if changed {
-                    acts.push(Act::ThemeChanged);
-                }
-                ui.small("Tip: launch with --minimized and use a ⚡ preset to start with your status already set.");
-            });
-        });
-
-        // ----- game grid -----
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(e) = &self.load_error {
-                ui.vertical_centered(|ui| {
-                    ui.label(format!("Couldn't load Discord's game list: {e}"));
-                    if ui.button("Try again").clicked() {
-                        retry = true;
-                    }
-                });
-                return;
-            }
-            if self.apps.is_empty() {
-                ui.vertical_centered(|ui| ui.label("Loading games..."));
-                return;
-            }
-
-            let q = self.query.trim().to_lowercase();
-            let mut shown: Vec<usize> = (0..self.apps.len())
-                .filter(|&i| {
-                    let a = &self.apps[i];
-                    (self.tab != Tab::Favorites || self.favs.contains(&a.id))
-                        && (self.tab != Tab::Detected || self.detected.contains(&a.id))
-                        && (self.genre.is_empty()
-                            || a.themes.iter().flatten().any(|t| *t == self.genre))
-                        && (q.is_empty() || a.matches(&q))
-                })
-                .collect();
-            if !q.is_empty() {
-                shown.sort_by_key(|&i| !self.apps[i].name.to_lowercase().starts_with(&q));
-            }
-            if let Some(p) = &self.playing {
-                if let Some(pos) = self.apps.iter().position(|a| &a.id == p) {
-                    shown.retain(|&i| i != pos);
-                    shown.insert(0, pos);
-                }
-            }
-
-            ui.label(format!("{} games", shown.len()));
-            if shown.is_empty() {
-                ui.vertical_centered(|ui| {
-                    ui.label(match self.tab {
-                        Tab::Favorites if self.favs.is_empty() => {
-                            "No favorites yet. Click the star on a game to add it here."
-                        }
-                        Tab::Detected => "No detected games running. Start one and press Rescan.",
-                        _ => "No games match your search.",
+                let q = self.query.trim().to_lowercase();
+                let mut shown: Vec<usize> = (0..self.apps.len())
+                    .filter(|&i| {
+                        let a = &self.apps[i];
+                        (self.tab != Tab::Favorites || self.favs.contains(&a.id))
+                            && (self.tab != Tab::Detected || self.detected.contains(&a.id))
+                            && (self.genre.is_empty() || a.themes.iter().flatten().any(|t| *t == self.genre))
+                            && (q.is_empty() || a.matches(&q))
                     })
-                });
-                return;
-            }
+                    .collect();
+                if !q.is_empty() {
+                    shown.sort_by_key(|&i| !self.apps[i].name.to_lowercase().starts_with(&q));
+                }
+                if let Some(pid) = &self.playing {
+                    if let Some(pos) = self.apps.iter().position(|a| &a.id == pid) {
+                        shown.retain(|&i| i != pos);
+                        shown.insert(0, pos);
+                    }
+                }
 
-            let cols = ((ui.available_width() / (CARD_W + 8.0)).floor() as usize).max(1);
-            let rows = shown.len().div_ceil(cols);
-            egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                ui,
-                ROW_H,
-                rows,
-                |ui, range| {
+                ui.label(rt(format!("{} games", shown.len()), p.muted).size(12.0));
+                if shown.is_empty() {
+                    ui.add_space(48.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(rt(
+                            match self.tab {
+                                Tab::Favorites if self.favs.is_empty() => "No favorites yet. Use the star on a game to add one",
+                                Tab::Detected => "No detected games are running. Start one and press Rescan",
+                                _ => "No games match your search",
+                            },
+                            p.muted,
+                        ))
+                    });
+                    return;
+                }
+
+                let cols = (((ui.available_width() + 8.0) / (CARD_W + 8.0)).floor() as usize).max(1);
+                let rows = shown.len().div_ceil(cols);
+                egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, CARD_H, rows, |ui, range| {
                     for r in range {
                         ui.horizontal_top(|ui| {
                             for &i in shown.iter().skip(r * cols).take(cols) {
                                 let app = &self.apps[i];
                                 let active = self.playing.as_deref() == Some(app.id.as_str());
-                                card(
-                                    ui,
-                                    app,
-                                    self.favs.contains(&app.id),
-                                    active,
-                                    accent,
-                                    &mut acts,
-                                );
+                                card(ui, p, app, self.favs.contains(&app.id), active, &mut acts);
                             }
                         });
                     }
-                },
-            );
-        });
+                });
+            });
 
         // Apply edits to the live status shortly after you stop changing things.
         if self.config.live_update {
