@@ -264,6 +264,7 @@ struct Style {
     store_steam: bool,
     store_ps: bool,
     store_xbox: bool,
+    send_data: bool,
     platform: Platform,
     small_image_url: String,
     small_text: String,
@@ -729,6 +730,7 @@ impl Gts {
                 auto_stores: true,
                 store_steam: true,
                 store_ps: true,
+                send_data: true,
                 ..Style::default()
             },
             pane: Pane::Status,
@@ -783,12 +785,19 @@ impl Gts {
             .find(|a| a.id == id)
             .map(|a| a.store_links(&self.style))
             .unwrap_or_default();
-        let _ = self.tx.send(Cmd::Set {
-            app_id: id.to_string(),
-            payload: payload(&self.style, art, stores),
-        });
-        self.last_sent = serde_json::to_string(&self.style).unwrap_or_default();
-        self.dirty_since = None;
+        
+        // Only send data if the user has enabled it
+        if self.style.send_data {
+            let _ = self.tx.send(Cmd::Set {
+                app_id: id.to_string(),
+                payload: payload(&self.style, art, stores),
+            });
+        } else {
+            // Send clear activity without data when send_data is disabled
+            let _ = self.tx.send(Cmd::Clear);
+            self.last_sent = serde_json::to_string(&self.style).unwrap_or_default();
+            self.dirty_since = None;
+        }
     }
 
     fn apply_preset(&mut self, i: usize) {
@@ -1289,6 +1298,7 @@ impl eframe::App for Gts {
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut self.style.store_steam, "Steam");
                                     ui.checkbox(&mut self.style.store_ps, "PlayStation");
+                                    ui.checkbox(&mut self.style.send_data, "Send Data");
                                     ui.checkbox(&mut self.style.store_xbox, "Xbox");
                                 });
                                 ui.label(rt("Two buttons at most. PlayStation and Xbox open a store search", p.muted).size(12.0));
